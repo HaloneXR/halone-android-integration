@@ -171,6 +171,22 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
 
     private val setActionButton by lazy { MotionEvent::class.java.getMethod("setActionButton", Int::class.javaPrimitiveType) }
 
+    override fun systemSetting(key: String): String? =
+        settings("get", key).takeIf { it != "null" }
+
+    override fun setSystemSetting(key: String, value: String?) {
+        if (value == null) settings("delete", key) else settings("put", key, value)
+    }
+
+    /** The `settings` command, as `adb shell` runs it: this process is the shell user. */
+    private fun settings(verb: String, key: String, value: String? = null): String {
+        val command = listOfNotNull("settings", verb, "system", key, value)
+        val process = ProcessBuilder(command).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+        check(process.waitFor() == 0) { "${command.joinToString(" ")}: $output" }
+        return output
+    }
+
     private fun inject(event: InputEvent, displayId: Int) {
         try {
             setDisplayId.invoke(event, displayId)

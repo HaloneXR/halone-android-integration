@@ -60,7 +60,10 @@
             </intent-filter>
             <meta-data
                 android:name="dev.halone.plugin.CONTRACT"
-                android:value="1" />
+                android:value="2" />
+            <meta-data
+                android:name="dev.halone.plugin.SETTINGS"
+                android:resource="@raw/halone_settings" />
         </service>
 
         <provider
