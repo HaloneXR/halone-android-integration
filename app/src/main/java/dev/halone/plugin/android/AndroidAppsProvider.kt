@@ -25,11 +25,13 @@ class AndroidAppsProvider : PanelProviderService() {
         private set
     private lateinit var signal: SignalStatus
     private lateinit var bluetooth: BluetoothStatus
+    private lateinit var refreshRate: RefreshRateHold
 
     override fun onCreate() {
         super.onCreate()
         home = HomeApps(this)
         privileged = Privileged(this).also { it.start() }
+        refreshRate = RefreshRateHold(this, privileged).also { it.start() }
         catalog = AppCatalog(this) {
             appsChanged()
             listChanged.toList().forEach { it() }
@@ -42,6 +44,8 @@ class AndroidAppsProvider : PanelProviderService() {
         bluetooth.stop()
         signal.stop()
         catalog.stop()
+        refreshRate.want(false)
+        refreshRate.stop()
         privileged.stop()
         super.onDestroy()
     }
@@ -72,6 +76,14 @@ class AndroidAppsProvider : PanelProviderService() {
         return AppPanelSession(this, app.label, launch)
     }
 
+    override fun onSettingsChanged(settings: Bundle) = holdRefreshRate()
+
+    override fun onEnvironmentStarted() = holdRefreshRate()
+
+    override fun onEnvironmentStopped() = holdRefreshRate()
+
+    private fun holdRefreshRate() = refreshRate.want(environmentRunning && settings.getBoolean(HOLD_REFRESH_RATE))
+
     override fun onStatusItemClicked(id: String) {
         when (id) {
             SignalStatus.WIFI -> launchApp(WIFI_SETTINGS)
@@ -91,6 +103,9 @@ class AndroidAppsProvider : PanelProviderService() {
         const val WIFI_SETTINGS = "wifi-settings"
         const val MOBILE_SETTINGS = "mobile-settings"
         const val BLUETOOTH_SETTINGS = "bluetooth-settings"
+
+        /** In `res/raw/halone_settings.json`. */
+        const val HOLD_REFRESH_RATE = "holdRefreshRate"
         const val LIST_WIDTH = 760
         const val LIST_HEIGHT = 640
         const val APP_WIDTH = 450

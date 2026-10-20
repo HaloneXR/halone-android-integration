@@ -41,7 +41,9 @@ Without access, an app window says what is missing; tapping it asks again.
 
 ## Build
 
-Needs JDK 17. The plugin SDK, `dev.halone:plugin-sdk`, comes from Maven Central.
+Needs JDK 17. The plugin SDK, `dev.halone:plugin-sdk`, comes from Maven Central;
+until 0.2.0 is published there, build against a halone-sdk checkout with
+`-PhaloneSdk=<checkout>/android`.
 
 ```
 ./gradlew :app:assembleDebug
