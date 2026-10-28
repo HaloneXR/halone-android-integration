@@ -1,0 +1,9 @@
+[
+  {
+    "key": "holdRefreshRate",
+    "type": "boolean",
+    "default": false,
+    "label": "Keep the phone's screen at its top refresh rate",
+    "help": "While the environment runs. Android draws for the glasses only as often as the phone's own screen refreshes, so glasses above 60 Hz otherwise get 60 frames a second. The phone's setting goes back to how it was when the environment stops."
+  }
+]

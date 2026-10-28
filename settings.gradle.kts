@@ -23,3 +23,6 @@ dependencyResolutionManagement {
 rootProject.name = "halone-android-integration"
 
 include(":app")
+
+// Builds against a local halone-sdk checkout instead of Maven Central: -PhaloneSdk=../halone/sdk/android
+providers.gradleProperty("haloneSdk").orNull?.let { includeBuild(it) }

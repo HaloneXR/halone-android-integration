@@ -30,4 +30,8 @@ interface IDisplayService {
     void setListener(IDisplayListener listener) = 10;
 
     oneway void pressBack(int displayId) = 11;
+
+    String systemSetting(String key) = 12;
+
+    void setSystemSetting(String key, String value) = 13;
 }
