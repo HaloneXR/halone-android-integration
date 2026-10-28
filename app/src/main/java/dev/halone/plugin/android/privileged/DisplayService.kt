@@ -213,12 +213,24 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
                 .onFailure { Log.w(TAG, method.name, it) }
                 .getOrNull()
         } ?: return null
+        heldSnapshot = snapshot
         runCatching { snapshot.javaClass.getMethod("getHardwareBuffer").invoke(snapshot) as HardwareBuffer? }.getOrNull()?.let { return it }
+        runCatching {
+            snapshot.javaClass.getDeclaredField("mSnapshot").apply { isAccessible = true }.get(snapshot) as HardwareBuffer?
+        }.getOrNull()?.takeIf { !it.isClosed }?.let { return it }
         val graphic = runCatching { snapshot.javaClass.getMethod("getSnapshot").invoke(snapshot) }.getOrNull() ?: return null
         return runCatching {
             HardwareBuffer::class.java.getMethod("createFromGraphicBuffer", graphic.javaClass).invoke(null, graphic) as HardwareBuffer
         }.getOrNull()
     }
+
+    /**
+     * Android 17's snapshots close their buffer once collected, and its
+     * getHardwareBuffer() answers null to callers outside the system, so the
+     * snapshot is held until the next capture and its buffer read directly.
+     */
+    @Volatile
+    private var heldSnapshot: Any? = null
 
     /** Android 17 moved snapshots to their own manager; before, the activity task manager had them. */
     private val snapshotMethods: List<Pair<Any, Method>> by lazy {
