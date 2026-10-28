@@ -24,6 +24,7 @@ import android.view.Surface
 import android.app.ActivityOptions
 import dev.halone.plugin.android.IDisplayListener
 import dev.halone.plugin.android.IDisplayService
+import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.FutureTask
 import kotlin.system.exitProcess
@@ -192,7 +193,7 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
         val tasks = runCatching { getAllRootTaskInfosOnDisplay.invoke(activityTaskManager, displayId) as List<*> }.getOrNull() ?: return null
         val ids = tasks.asSequence().flatMap(::taskIdsOf).distinct().toList()
         val picture = ids.firstNotNullOfOrNull(::snapshotOf)
-        if (picture == null) Log.i(TAG, "capture: nothing for display $displayId, tasks $ids, through ${snapshotMethods.map { it.name }}")
+        if (picture == null) Log.i(TAG, "capture: nothing for display $displayId, tasks $ids, through ${snapshotMethods.map { (target, method) -> "${target.javaClass.simpleName}.${method.name}" }}")
         return picture
     }
 
@@ -205,10 +206,10 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
 
     /** The picture the system's own recents shows for a task, taken fresh where this Android can. */
     private fun snapshotOf(taskId: Int): HardwareBuffer? {
-        val snapshot = snapshotMethods.firstNotNullOfOrNull { method ->
-            // takeTaskSnapshot(taskId, updateCache); getTaskSnapshot(taskId, isLowResolution, takeSnapshotIfNeeded)
+        val snapshot = snapshotMethods.firstNotNullOfOrNull { (target, method) ->
+            // takeTaskSnapshot(taskId, updateCache, …); getTaskSnapshot(taskId, isLowResolution, takeSnapshotIfNeeded)
             val flags = method.parameterTypes.drop(1).indices.map { method.name == "getTaskSnapshot" && it > 0 }
-            runCatching { method.invoke(activityTaskManager, taskId, *flags.toTypedArray()) }
+            runCatching { method.invoke(target, taskId, *flags.toTypedArray()) }
                 .onFailure { Log.w(TAG, method.name, it) }
                 .getOrNull()
         } ?: return null
@@ -219,15 +220,25 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
         }.getOrNull()
     }
 
-    private val snapshotMethods by lazy {
-        listOf("takeTaskSnapshot", "getTaskSnapshot").mapNotNull { name ->
-            activityTaskManager.javaClass.methods.firstOrNull { method ->
+    /** Android 17 moved snapshots to their own manager; before, the activity task manager had them. */
+    private val snapshotMethods: List<Pair<Any, Method>> by lazy {
+        val manager = runCatching { Class.forName("android.window.TaskSnapshotManager").getMethod("getInstance").invoke(null) }.getOrNull()
+        listOfNotNull(
+            manager?.let { snapshotMethod(it, "takeTaskSnapshot") },
+            snapshotMethod(activityTaskManager, "takeTaskSnapshot"),
+            snapshotMethod(activityTaskManager, "getTaskSnapshot"),
+        )
+    }
+
+    private fun snapshotMethod(target: Any, name: String): Pair<Any, Method>? =
+        target.javaClass.methods
+            .filter { method ->
                 val types = method.parameterTypes
                 method.name == name && types.firstOrNull() == Int::class.javaPrimitiveType &&
                     types.drop(1).all { it == Boolean::class.javaPrimitiveType }
             }
-        }
-    }
+            .minByOrNull { it.parameterCount }
+            ?.let { target to it }
 
     private fun inject(event: InputEvent, displayId: Int) {
         try {
