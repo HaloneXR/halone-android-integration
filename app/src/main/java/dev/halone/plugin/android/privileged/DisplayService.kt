@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.hardware.display.DisplayManager
+import android.hardware.HardwareBuffer
 import android.hardware.display.VirtualDisplay
 import android.os.Build
 import android.os.Bundle
@@ -185,6 +186,44 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
         val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
         check(process.waitFor() == 0) { "${command.joinToString(" ")}: $output" }
         return output
+    }
+
+    override fun captureDisplay(displayId: Int): HardwareBuffer? {
+        val tasks = runCatching { getAllRootTaskInfosOnDisplay.invoke(activityTaskManager, displayId) as List<*> }.getOrNull() ?: return null
+        return tasks.asSequence().flatMap(::taskIdsOf).distinct().firstNotNullOfOrNull(::snapshotOf)
+    }
+
+    /** A root task's children, topmost first, then the root task itself. */
+    private fun taskIdsOf(task: Any?): Sequence<Int> {
+        val children = runCatching { task!!.javaClass.getField("childTaskIds").get(task) as IntArray }.getOrNull()?.reversed().orEmpty()
+        val own = runCatching { task!!.javaClass.getField("taskId").getInt(task) }.getOrNull()
+        return (children + listOfNotNull(own)).asSequence()
+    }
+
+    /** The picture the system's own recents shows for a task, taken fresh where this Android can. */
+    private fun snapshotOf(taskId: Int): HardwareBuffer? {
+        val snapshot = snapshotMethods.firstNotNullOfOrNull { method ->
+            // takeTaskSnapshot(taskId, updateCache); getTaskSnapshot(taskId, isLowResolution, takeSnapshotIfNeeded)
+            val flags = method.parameterTypes.drop(1).indices.map { method.name == "getTaskSnapshot" && it > 0 }
+            runCatching { method.invoke(activityTaskManager, taskId, *flags.toTypedArray()) }
+                .onFailure { Log.w(TAG, method.name, it) }
+                .getOrNull()
+        } ?: return null
+        runCatching { snapshot.javaClass.getMethod("getHardwareBuffer").invoke(snapshot) as HardwareBuffer? }.getOrNull()?.let { return it }
+        val graphic = runCatching { snapshot.javaClass.getMethod("getSnapshot").invoke(snapshot) }.getOrNull() ?: return null
+        return runCatching {
+            HardwareBuffer::class.java.getMethod("createFromGraphicBuffer", graphic.javaClass).invoke(null, graphic) as HardwareBuffer
+        }.getOrNull()
+    }
+
+    private val snapshotMethods by lazy {
+        listOf("takeTaskSnapshot", "getTaskSnapshot").mapNotNull { name ->
+            activityTaskManager.javaClass.methods.firstOrNull { method ->
+                val types = method.parameterTypes
+                method.name == name && types.firstOrNull() == Int::class.javaPrimitiveType &&
+                    types.drop(1).all { it == Boolean::class.javaPrimitiveType }
+            }
+        }
     }
 
     private fun inject(event: InputEvent, displayId: Int) {

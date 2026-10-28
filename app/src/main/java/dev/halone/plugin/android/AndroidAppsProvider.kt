@@ -23,6 +23,8 @@ class AndroidAppsProvider : PanelProviderService() {
         private set
     lateinit var privileged: Privileged
         private set
+    lateinit var recents: RecentApps
+        private set
     private lateinit var signal: SignalStatus
     private lateinit var bluetooth: BluetoothStatus
     private lateinit var refreshRate: RefreshRateHold
@@ -30,11 +32,12 @@ class AndroidAppsProvider : PanelProviderService() {
     override fun onCreate() {
         super.onCreate()
         home = HomeApps(this)
+        recents = RecentApps(this).also { it.changed += { notifyListChanged() } }
         privileged = Privileged(this).also { it.start() }
         refreshRate = RefreshRateHold(this, privileged).also { it.start() }
         catalog = AppCatalog(this) {
             appsChanged()
-            listChanged.toList().forEach { it() }
+            notifyListChanged()
         }.also { it.start() }
         signal = SignalStatus(this, ::setStatusItem, ::removeStatusItem).also { it.start() }
         bluetooth = BluetoothStatus(this, ::setStatusItem, ::removeStatusItem).also { it.start() }
@@ -44,6 +47,7 @@ class AndroidAppsProvider : PanelProviderService() {
         bluetooth.stop()
         signal.stop()
         catalog.stop()
+        recents.stop()
         refreshRate.want(false)
         refreshRate.stop()
         privileged.stop()
@@ -51,6 +55,10 @@ class AndroidAppsProvider : PanelProviderService() {
     }
 
     val listChanged = LinkedHashSet<() -> Unit>()
+
+    private fun notifyListChanged() = listChanged.toList().forEach { it() }
+
+    val recentsOn: Boolean get() = settings.getBoolean(SHOW_RECENTS, true)
 
     override fun apps(): List<PluginApp> =
         listOf(PluginApp(LIST, getString(R.string.list_name), getString(R.string.list_description), LIST_WIDTH, LIST_HEIGHT, icon = R.drawable.ic_apps)) +
@@ -73,10 +81,13 @@ class AndroidAppsProvider : PanelProviderService() {
             .addCategory(Intent.CATEGORY_LAUNCHER)
             .setComponent(app.component)
             .addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        return AppPanelSession(this, app.label, launch)
+        return AppPanelSession(this, app.label, launch, app.id)
     }
 
-    override fun onSettingsChanged(settings: Bundle) = holdRefreshRate()
+    override fun onSettingsChanged(settings: Bundle) {
+        holdRefreshRate()
+        notifyListChanged()
+    }
 
     override fun onEnvironmentStarted() = holdRefreshRate()
 
@@ -95,7 +106,7 @@ class AndroidAppsProvider : PanelProviderService() {
     fun setOnHome(id: String, onHome: Boolean) {
         home.set(id, onHome)
         appsChanged()
-        listChanged.toList().forEach { it() }
+        notifyListChanged()
     }
 
     companion object {
@@ -106,6 +117,7 @@ class AndroidAppsProvider : PanelProviderService() {
 
         /** In `res/raw/halone_settings.json`. */
         const val HOLD_REFRESH_RATE = "holdRefreshRate"
+        const val SHOW_RECENTS = "showRecents"
         const val LIST_WIDTH = 760
         const val LIST_HEIGHT = 640
         const val APP_WIDTH = 450

@@ -1,6 +1,7 @@
 package dev.halone.plugin.android
 
 import android.content.Intent
+import android.hardware.HardwareBuffer
 import android.os.Handler
 import android.os.Looper
 import android.os.RemoteException
@@ -15,6 +16,8 @@ class AppPanelSession(
     private val provider: AndroidAppsProvider,
     private val label: String,
     private val launch: Intent,
+    /** The catalog app shown, kept in recents when closed; null for a settings screen. */
+    private val appId: String? = null,
 ) : PanelSession() {
     private val privileged get() = provider.privileged
     private val main = Handler(Looper.getMainLooper())
@@ -65,8 +68,17 @@ class AppPanelSession(
         main.removeCallbacks(applyResize)
         card?.release()
         card = null
+        keepInRecents()
         releaseDisplay()
         surface = null
+    }
+
+    private fun keepInRecents() {
+        val id = appId ?: return
+        if (!provider.recentsOn || displayId == NO_DISPLAY) return
+        var picture: HardwareBuffer? = null
+        call { picture = it.captureDisplay(displayId) }
+        provider.recents.add(id, picture)
     }
 
     override fun onMotionEvent(event: MotionEvent) {

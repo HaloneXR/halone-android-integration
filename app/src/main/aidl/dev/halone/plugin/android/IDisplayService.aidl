@@ -1,6 +1,7 @@
 package dev.halone.plugin.android;
 
 import android.content.Intent;
+import android.hardware.HardwareBuffer;
 import dev.halone.plugin.android.IDisplayListener;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -34,4 +35,6 @@ interface IDisplayService {
     String systemSetting(String key) = 12;
 
     void setSystemSetting(String key, String value) = 13;
+
+    HardwareBuffer captureDisplay(int displayId) = 14;
 }
