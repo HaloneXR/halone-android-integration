@@ -21,9 +21,20 @@ android {
         buildConfig = true
     }
 
+    val keystore = findProperty("haloneKeystore") as String?
+    val releaseSigning = keystore?.let {
+        signingConfigs.create("release") {
+            storeFile = file(it)
+            storePassword = findProperty("haloneKeystorePassword") as String?
+            keyAlias = findProperty("haloneKeyAlias") as String?
+            keyPassword = findProperty("haloneKeyPassword") as String?
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = releaseSigning
         }
     }
 
