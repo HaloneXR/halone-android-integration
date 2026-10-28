@@ -8,6 +8,10 @@
     <string name="menu_open">Open</string>
     <string name="menu_add_home">Add to Home</string>
     <string name="menu_remove_home">Remove from Home</string>
+    <string name="recent_header">Recent</string>
+    <string name="recent_clear">Clear</string>
+    <string name="recent_discard">Remove from recent</string>
+    <string name="all_apps_header">All apps · %1$d</string>
 
     <string name="notice_no_shizuku_title">Shizuku is needed</string>
     <string name="notice_no_shizuku_body">Install Shizuku on the phone, or Sui on a rooted phone, to show phone apps here.</string>

@@ -1,6 +1,7 @@
 package dev.halone.plugin.android
 
 import android.content.Intent
+import android.hardware.HardwareBuffer
 import android.os.Handler
 import android.os.Looper
 import android.os.RemoteException
@@ -9,12 +10,15 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import dev.halone.plugin.PanelSession
+import java.util.concurrent.Executors
 
 /** A phone app's task, shown on a trusted virtual display created on this window's surface. */
 class AppPanelSession(
     private val provider: AndroidAppsProvider,
     private val label: String,
     private val launch: Intent,
+    /** The catalog app shown, kept in recents when closed; null for a settings screen. */
+    private val appId: String? = null,
 ) : PanelSession() {
     private val privileged get() = provider.privileged
     private val main = Handler(Looper.getMainLooper())
@@ -38,6 +42,31 @@ class AppPanelSession(
     }
     private val applyResize = Runnable { call { it.resizeDisplay(displayId, widthPx, heightPx, displayDpi()) } }
 
+    /**
+     * By the time Halone closes a window it has let go of its surface, and a
+     * display with nothing to draw into has nothing to snapshot. So while the
+     * app is on show its picture is kept fresh, for recents to fall back on.
+     */
+    private val snapshots = Executors.newSingleThreadExecutor()
+    private var lastPicture: HardwareBuffer? = null
+    private val keepPicture = object : Runnable {
+        override fun run() {
+            main.postDelayed(this, PICTURE_INTERVAL_MS)
+            if (surface == null || !provider.recentsOn || appId == null) return
+            val id = displayId
+            val service = displayService ?: return
+            if (id == NO_DISPLAY) return
+            snapshots.execute {
+                val picture = runCatching { service.captureDisplay(id) }.getOrNull() ?: return@execute
+                main.post {
+                    if (snapshots.isShutdown) return@post picture.close()
+                    lastPicture?.close()
+                    lastPicture = picture
+                }
+            }
+        }
+    }
+
     override fun onAttach(surface: Surface) {
         host.setTitle(label)
         host.setBackButton(true)
@@ -45,6 +74,8 @@ class AppPanelSession(
         this.surface = surface
         privileged.addListener(onPrivilegedChanged)
         connect()
+        main.removeCallbacks(keepPicture)
+        main.postDelayed(keepPicture, PICTURE_INTERVAL_MS)
     }
 
     override fun onResize() {
@@ -54,6 +85,7 @@ class AppPanelSession(
     }
 
     override fun onDetach() {
+        main.removeCallbacks(keepPicture)
         surface = null
         card?.release()
         card = null
@@ -63,10 +95,24 @@ class AppPanelSession(
     override fun onClose() {
         privileged.removeListener(onPrivilegedChanged)
         main.removeCallbacks(applyResize)
+        main.removeCallbacks(keepPicture)
         card?.release()
         card = null
+        keepInRecents()
         releaseDisplay()
         surface = null
+    }
+
+    private fun keepInRecents() {
+        snapshots.shutdown()
+        val earlier = lastPicture
+        lastPicture = null
+        val id = appId
+        if (id == null || !provider.recentsOn || displayId == NO_DISPLAY) return earlier?.close() ?: Unit
+        var picture: HardwareBuffer? = null
+        call { picture = it.captureDisplay(displayId) }
+        if (picture != null) earlier?.close()
+        provider.recents.add(id, picture ?: earlier)
     }
 
     override fun onMotionEvent(event: MotionEvent) {
@@ -168,6 +214,7 @@ class AppPanelSession(
         const val TAG = "HaloneAndroidApps"
         const val NO_DISPLAY = -1
         const val RESIZE_SETTLE_MS = 400L
+        const val PICTURE_INTERVAL_MS = 3_000L
         const val MIN_SIZE_PX = 320
         const val MAX_SIZE_PX = 2560
         const val MAX_LAYOUT_PX = 1280
