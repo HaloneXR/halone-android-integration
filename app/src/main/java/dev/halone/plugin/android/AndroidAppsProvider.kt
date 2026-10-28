@@ -79,6 +79,7 @@ class AndroidAppsProvider : PanelProviderService() {
         if (appId == LIST) return AppListSession(this)
         SETTINGS[appId]?.let { return AppPanelSession(this, getString(it.label), Intent(it.action)) }
         val app = catalog.find(appId) ?: return null
+        recents.remove(app.id)
         val launch = Intent(Intent.ACTION_MAIN)
             .addCategory(Intent.CATEGORY_LAUNCHER)
             .setComponent(app.component)
