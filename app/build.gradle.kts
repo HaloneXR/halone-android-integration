@@ -3,6 +3,10 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+// Releases are versioned by their tag: -Phalone.version=0.2.0. 1.2.3 becomes versionCode 10203.
+val releaseVersion = findProperty("halone.version") as String? ?: "0.1.0"
+val (major, minor, patch) = releaseVersion.substringBefore("-").split(".").map(String::toInt)
+
 android {
     namespace = "dev.halone.plugin.android"
     compileSdk = 37
@@ -12,8 +16,8 @@ android {
         applicationId = "dev.halone.plugin.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = major * 10000 + minor * 100 + patch
+        versionName = releaseVersion
     }
 
     buildFeatures {

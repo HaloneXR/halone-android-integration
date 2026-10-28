@@ -31,7 +31,7 @@ jobs:
           ORG_GRADLE_PROJECT_haloneKeystorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_haloneKeyAlias: ${{ secrets.KEY_ALIAS }}
           ORG_GRADLE_PROJECT_haloneKeyPassword: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease
+        run: ./gradlew :app:assembleRelease -Phalone.version="$GITHUB_REF_NAME"
 
       - name: Name the APK after the release
         run: |
