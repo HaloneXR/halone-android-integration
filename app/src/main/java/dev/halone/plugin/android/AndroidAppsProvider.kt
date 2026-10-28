@@ -60,6 +60,8 @@ class AndroidAppsProvider : PanelProviderService() {
 
     val recentsOn: Boolean get() = settings.getBoolean(SHOW_RECENTS, true)
 
+    val smallIcons: Boolean get() = settings.getBoolean(SMALL_ICONS, false)
+
     override fun apps(): List<PluginApp> =
         listOf(PluginApp(LIST, getString(R.string.list_name), getString(R.string.list_description), LIST_WIDTH, LIST_HEIGHT, icon = R.drawable.ic_apps)) +
             SETTINGS.map { (id, screen) -> PluginApp(id, getString(screen.label), widthPx = APP_WIDTH, heightPx = APP_HEIGHT, hidden = true) } +
@@ -118,6 +120,7 @@ class AndroidAppsProvider : PanelProviderService() {
         /** In `res/raw/halone_settings.json`. */
         const val HOLD_REFRESH_RATE = "holdRefreshRate"
         const val SHOW_RECENTS = "showRecents"
+        const val SMALL_ICONS = "smallIcons"
         const val LIST_WIDTH = 760
         const val LIST_HEIGHT = 640
         const val APP_WIDTH = 450

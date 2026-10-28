@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -22,7 +23,7 @@ import android.view.ViewOutlineProvider
 import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.GridView
+import android.widget.ListView
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -44,6 +45,11 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
     private lateinit var recentRow: LinearLayout
     private lateinit var allHeader: TextView
     private val previews = LruCache<String, Bitmap>(PREVIEW_CACHE)
+    private lateinit var list: ListView
+    private var columns = 1
+    private var smallIcons = false
+    private val iconSize get() = if (smallIcons) SMALL_ICON_SIZE else ICON_SIZE
+    private val cellWidth get() = if (smallIcons) SMALL_CELL_WIDTH else CELL_WIDTH
     private val onListChanged: () -> Unit = { filter() }
 
     override fun onCreateView(context: Context): View {
@@ -73,21 +79,6 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
         }
 
         adapter = Adapter(context)
-        val grid = GridView(context).apply {
-            numColumns = GridView.AUTO_FIT
-            columnWidth = CELL_WIDTH
-            stretchMode = GridView.STRETCH_SPACING_UNIFORM
-            verticalSpacing = SPACING
-            setPadding(0, SPACING, 0, SPACING)
-            clipToPadding = false
-            adapter = this@AppListSession.adapter
-            setOnItemClickListener { _, _, position, _ -> provider.launchApp(shown[position].id) }
-            setOnItemLongClickListener { _, cell, position, _ ->
-                showMenu(cell, shown[position])
-                true
-            }
-        }
-
         recentRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         val clear = TextView(context).apply {
             setText(R.string.recent_clear)
@@ -115,7 +106,23 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
         empty = TextView(context).apply {
             text = context.getString(R.string.no_apps)
             gravity = Gravity.CENTER
+            setPadding(0, PADDING * 2, 0, PADDING * 2)
             visibility = View.GONE
+        }
+
+        list = ListView(context).apply {
+            divider = null
+            selector = ColorDrawable(Color.TRANSPARENT)
+            isVerticalScrollBarEnabled = false
+            clipToPadding = false
+            setPadding(0, 0, 0, SPACING)
+            addHeaderView(recentSection.withTopMargin(context), null, false)
+            addHeaderView(allHeader.withTopMargin(context), null, false)
+            addFooterView(empty, null, false)
+            adapter = this@AppListSession.adapter
+            addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+                if (right - left != oldRight - oldLeft) fitColumns(right - left)
+            }
         }
         filter()
 
@@ -124,10 +131,7 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
             setBackgroundColor(Color.rgb(0x16, 0x18, 0x1d))
             setPadding(PADDING, PADDING, PADDING, 0)
             addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, SEARCH_HEIGHT))
-            addView(recentSection, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = SPACING })
-            addView(allHeader, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = SPACING })
-            addView(empty, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
         root = FrameLayout(context).apply { addView(content) }
         return root
@@ -139,10 +143,30 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
         super.onClose()
     }
 
+    /** A header in a ListView ignores its own margins, so the gap above it is a wrapper's padding. */
+    private fun View.withTopMargin(context: Context) = FrameLayout(context).also {
+        it.setPadding(0, SPACING, 0, 0)
+        it.addView(this)
+    }
+
+    private fun fitColumns(width: Int) {
+        val fitting = (width / cellWidth).coerceAtLeast(1)
+        if (fitting == columns) return
+        columns = fitting
+        adapter.notifyDataSetChanged()
+    }
+
     private fun filter() {
         val all = provider.catalog.apps
         shown = if (query.isEmpty()) all else all.filter { it.label.contains(query, ignoreCase = true) }
-        if (!::adapter.isInitialized) return
+        if (!::list.isInitialized) return
+        val small = provider.smallIcons
+        if (small != smallIcons) {
+            smallIcons = small
+            columns = 0
+            list.adapter = adapter
+            if (list.width > 0) fitColumns(list.width)
+        }
         adapter.notifyDataSetChanged()
         empty.visibility = if (shown.isEmpty()) View.VISIBLE else View.GONE
         allHeader.text = allHeader.context.getString(R.string.all_apps_header, shown.size).uppercase()
@@ -152,7 +176,7 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
     /** Hidden while searching, so the results come first. */
     private fun showRecents() {
         val recent = if (provider.recentsOn && query.isEmpty()) provider.recents.ids.mapNotNull(provider.catalog::find) else emptyList()
-        recentSection.visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
+        (recentSection.parent as? View ?: recentSection).visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
         recentRow.removeAllViews()
         recent.forEach { recentRow.addView(recentTile(recentRow.context, it)) }
     }
@@ -311,19 +335,36 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
         }
     }
 
+    /** Rows of [columns] apps, so the grid scrolls in the same list as the recent apps above it. */
     private inner class Adapter(private val context: Context) : BaseAdapter() {
-        override fun getCount() = shown.size
+        override fun getCount() = if (columns <= 0) 0 else (shown.size + columns - 1) / columns
 
-        override fun getItem(position: Int) = shown[position]
+        override fun getItem(position: Int) = position
 
         override fun getItemId(position: Int) = position.toLong()
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-            val cell = convertView as? LinearLayout ?: newCell()
-            val app = shown[position]
-            loadIcon(app, cell.getChildAt(0) as ImageView)
-            (cell.getChildAt(1) as TextView).text = app.label
-            return cell
+            val row = (convertView as? LinearLayout)?.takeIf { it.childCount == columns } ?: newRow()
+            for (column in 0 until columns) {
+                val cell = row.getChildAt(column) as LinearLayout
+                val app = shown.getOrNull(position * columns + column)
+                cell.visibility = if (app == null) View.INVISIBLE else View.VISIBLE
+                if (app == null) continue
+                loadIcon(app, cell.getChildAt(0) as ImageView)
+                (cell.getChildAt(1) as TextView).text = app.label
+                cell.setOnClickListener { provider.launchApp(app.id) }
+                cell.setOnLongClickListener {
+                    showMenu(cell, app)
+                    true
+                }
+            }
+            return row
+        }
+
+        private fun newRow() = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, SPACING / 2, 0, SPACING / 2)
+            repeat(columns) { addView(newCell(), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)) }
         }
 
         private fun newCell() = LinearLayout(context).apply {
@@ -331,7 +372,7 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(SPACING / 2, SPACING / 2, SPACING / 2, SPACING / 2)
             selectable(context)
-            addView(ImageView(context), LinearLayout.LayoutParams(ICON_SIZE, ICON_SIZE))
+            addView(ImageView(context), LinearLayout.LayoutParams(iconSize, iconSize))
             addView(TextView(context).apply {
                 gravity = Gravity.CENTER
                 maxLines = 2
@@ -346,6 +387,8 @@ class AppListSession(private val provider: AndroidAppsProvider) : ViewPanelSessi
         const val SPACING = 12
         const val CELL_WIDTH = 136
         const val ICON_SIZE = 72
+        const val SMALL_CELL_WIDTH = 104
+        const val SMALL_ICON_SIZE = 56
         const val ICON_CACHE = 300
         const val PREVIEW_CACHE = 16
         const val SEARCH_HEIGHT = 52

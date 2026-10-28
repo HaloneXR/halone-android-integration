@@ -190,7 +190,10 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
 
     override fun captureDisplay(displayId: Int): HardwareBuffer? {
         val tasks = runCatching { getAllRootTaskInfosOnDisplay.invoke(activityTaskManager, displayId) as List<*> }.getOrNull() ?: return null
-        return tasks.asSequence().flatMap(::taskIdsOf).distinct().firstNotNullOfOrNull(::snapshotOf)
+        val ids = tasks.asSequence().flatMap(::taskIdsOf).distinct().toList()
+        val picture = ids.firstNotNullOfOrNull(::snapshotOf)
+        if (picture == null) Log.i(TAG, "capture: nothing for display $displayId, tasks $ids, through ${snapshotMethods.map { it.name }}")
+        return picture
     }
 
     /** A root task's children, topmost first, then the root task itself. */

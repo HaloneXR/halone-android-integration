@@ -7,6 +7,13 @@
     "help": "Apps you closed lately, at the top of Android Apps, each with a picture of its window as you left it."
   },
   {
+    "key": "smallIcons",
+    "type": "boolean",
+    "default": false,
+    "label": "Smaller icons",
+    "help": "Fits more apps on each row of Android Apps."
+  },
+  {
     "key": "holdRefreshRate",
     "type": "boolean",
     "default": false,
